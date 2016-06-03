@@ -55,6 +55,7 @@ struct timeval tp;
 struct sockaddr_in sa;
 struct hostent* addrent;
 vector <pair <int, long int>> processList;
+int corpse = 2;
 
 /*
 struct msgbuf {
@@ -77,7 +78,7 @@ void addToProcessList(int rank, long int priority){
     processList.push_back(process);    
 }
 
-int myPosition(int rank){
+int getPosition(int rank){
     for(unsigned int i = 0; i < processList.size(); i++){
         if(rank == processList[i].first )
             return i;
@@ -97,11 +98,25 @@ void sortProcessList(){
             }
         }          
     }    
+    
+    for(unsigned int j = 0; j < processList.size() - 1; j++){
+        for(unsigned int i = 0; i < processList.size() - 1; i++){
+            if(processList[i].second == processList[i+1].second && 
+                processList[i].first > processList[i+1].first ) {
+                tmp = processList[i+1];
+                processList[i+1] = processList[i];
+                processList[i] = tmp;            
+            }
+        }          
+    }    
+    
+    
 }
 
-bool canITakeCorpse(int rank, int corpse){
+bool canITakeCorpse(int size, int rank, int corpse){
     sortProcessList();
-    if(myPosition(rank) < corpse)
+    int diff = size - processList.size(); // jak nie mamy odpowiedzi od wszystkich to zakladamy, że
+    if(getPosition(rank) + diff < corpse) // ten, którego zegara nie znamy jest przed nami
         return true;
     else 
         return false;    
@@ -124,6 +139,43 @@ void printProcessList(vector < pair <int, long int> > processList){
 }
 
 
+void pogrzeb(){
+    cout << "PRZEBIEGA POGRZEB JEDNEGO Z TRUPÓW...\n";
+    corpse--;
+    sleep(5);
+    //sendRelease(); -> DO ZAKODZENIA
+    //TUTAJ !
+}
+
+bool receiveMessages(int msg_count, int size, int rank, long int *msg){
+    MPI_Status status;
+    while(msg_count != size - 1){
+        //odbieraj wiadomosci
+        MPI_Recv(msg, 3, MPI_LONG_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+        printf(" Otrzymalem rank: %ld, priority: %ld, type: %ld od %d\n", msg[0], msg[1], msg[2], status.MPI_SOURCE);
+        if(msg[2] == 0){ //release
+            corpse--;   
+            msg_count--;
+            processList.erase(processList.begin()+getPosition(msg[0])); 
+            //usun z listy proces który wykonał pogrzeb
+        } else if (msg[2] == 1){ //request
+            msg_count++;
+            addToProcessList(msg[0], msg[1]);
+            if (canITakeCorpse(size, rank, corpse)){
+                printf("%ld: BIORE GO (szybciej) !\n", rank);
+                //goto potrzeb
+                pogrzeb();
+                return true;  //jak true to jump do startu
+                
+            }
+            
+        } else { // msg[2] == 2, czyli batch
+            corpse += (int)msg[1];
+        }
+        
+    }  
+    return false;
+}
 
 
 
@@ -187,7 +239,7 @@ int main(int argc, char **argv) {
     int size, rank, len;
 	char processor[100];
     long int priority = 0;
-    int corpse = 2;
+    //int corpse = 2;
 	MPI_Init(&argc,&argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank); // ktory watek
     MPI_Comm_size(MPI_COMM_WORLD, &size); // ile watkow
@@ -238,75 +290,85 @@ int main(int argc, char **argv) {
     //count = ask2(fd);
     */
     
-    priority = getNewPriority();
-    printf("My priority: %ld \n", priority);
     
-    printf("My pid : %d z %d na (%s)\n", rank, size, processor);            
-    
-    //  <pid, priorytet>
-    
-    addToProcessList(rank, priority);    
-    printProcessList(processList);
-    
-    
-    
-    while(corpse < 1){
-        printf("czekam na pojawienie sie nowych trupów...\n");
-        sleep(5);
-        /*
-            TUTAJ TRZEBA SIE ZAPYTAC SERWER O TO ILE JEST TRUPÓW    
-        */
-    }
-    
-    
-    /*
-    - wysylam wszystkim swoj priorytet
-    - odbieram od wszystkich priorytety
-    - dodaje ich do listy
-    */
-    
-    long int msg[2];
-    msg[0] = (long)rank;
-    msg[1] = priority;
-    
-    
-    int msg_count = 0;
-    
-    
-    for(int i = 0; i < size; i++){
-        if(i != rank){
-            //wyślij priorytet
-            MPI_Send( msg, 2, MPI_LONG_INT, i, MSG_TAG, MPI_COMM_WORLD );
-            printf(" Wyslalem rank: %ld, priority: %ld do %d\n", msg[0], msg[1], i );
-        }
-    }
-    
-    while(msg_count != size - 1){
-        //odbieraj wiadomosci
-        MPI_Recv(msg, 2, MPI_LONG_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-        printf(" Otrzymalem rank: %ld, priority: %ld od %d\n", msg[0], msg[1], status.MPI_SOURCE);
-        msg_count++;
-        //cout << "count: " << msg_count << endl;            
-        //dodaj do listy
-        addToProcessList(msg[0], msg[1]);
+    while(1){
+    /*  START   */    
         
-    } //jak wyjde z tej pętli to znaczy, że wszystkie wiadomości dotarły
-    
-    
-    
-    
-    if(canITakeCorpse(rank, corpse))
-        printf("BIORE GO !\n");
-    else 
-        printf("MUSZE CZEKAC :(\n");
-    
-    printf("My ID: %d, priority: %ld, corpses: %d\n", rank, priority, corpse); 
-    printProcessList(processList);
-    
-    
-    //processList.erase(processList.begin()+1);
-   
-	
+        priority = getNewPriority();
+        printf("My priority: %ld \n", priority);
+        
+        printf("My pid : %d z %d na (%s)\n", rank, size, processor);            
+        
+        //  <pid, priorytet>
+        
+        addToProcessList(rank, priority);    
+        printProcessList(processList);
+        
+        
+        
+        while(corpse < 1){
+            printf("czekam na pojawienie sie nowych trupów...\n");
+            sleep(5);
+            /*
+                TUTAJ TRZEBA SIE ZAPYTAC SERWER O TO ILE JEST TRUPÓW    
+            */
+        }
+        
+        
+        /*
+        - wysylam wszystkim swoj priorytet
+        - odbieram od wszystkich priorytety
+        - dodaje ich do listy
+        */
+        
+        int type = 1; 
+        long int msg[3];
+        msg[0] = (long)rank;
+        msg[1] = priority; 
+        msg[2] = type;
+        
+        /*
+            0 - release
+            1 - request
+            2 - batch
+        */
+        
+        
+        int msg_count = 0;    
+        
+        //rozgłaszanie
+        for(int i = 0; i < size; i++){
+            if(i != rank){
+                //wyślij priorytet
+                MPI_Send( msg, 3, MPI_LONG_INT, i, MSG_TAG, MPI_COMM_WORLD );
+                printf(" Wyslalem rank: %ld, priority: %ld, type: %ld do %d\n", msg[0], msg[1], msg[2], i );
+            }
+        }    
+        
+        
+        bool gotCorpse = receiveMessages(msg_count, size, rank, msg);  
+        if(gotCorpse)
+            continue;
+        
+        
+        if(canITakeCorpse(size, rank, corpse)){
+            printf("BIORE GO !\n");
+            pogrzeb();
+        } else {
+            printf("MUSZE CZEKAC :(\n");
+            //czekaj na nowe wiadomosci
+            receiveMessages(msg_count, size, rank, msg);  
+        }
+        
+        //printf("My ID: %d, priority: %ld, corpses: %d\n", rank, priority, corpse); 
+        //printProcessList(processList);
+        
+        
+        
+        
+        //processList.erase(processList.begin()+1);
+    }
+	cout << "koniec pracy procesu " << rank << endl;
 	MPI_Finalize();
 }
 
@@ -314,7 +376,7 @@ int main(int argc, char **argv) {
 /*
 
 mpiCC grabarz.cpp  -std=c++11 -o g.exe
-mpirun -default-hostfile none -np 8 ./g.exe localhost
+mpirun -default-hostfile none -np 5 ./g.exe localhost
 mpirun -default-hostfile none -np 5 ./a.out 
 
 */
