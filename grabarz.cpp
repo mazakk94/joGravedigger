@@ -90,15 +90,19 @@ void sortProcessList(){
     /*     BUBBLE SORT XD    */
     pair <int, long int> tmp;
     for(unsigned int j = 0; j < processList.size() - 1; j++){
-        for(unsigned int i = 0; i < processList.size() - 1; i++){
-            if(processList[i].second > processList[i+1].second) {
-                tmp = processList[i+1];
-                processList[i+1] = processList[i];
-                processList[i] = tmp;            
+        for(unsigned int i = 0; i < processList.size() - 1; i++){            
+            if(processList[i].second > processList[i+1].second 
+                && processList[i+1].second > 0) {
+                tmp.first = processList[i+1].first;
+                tmp.second = processList[i+1].second;                
+                processList[i+1].first = processList[i].first;
+                processList[i+1].second = processList[i].second;
+                processList[i].first = tmp.first;            
+                processList[i].second = tmp.second;            
             }
         }          
     }    
-    
+    /*
     for(unsigned int j = 0; j < processList.size() - 1; j++){
         for(unsigned int i = 0; i < processList.size() - 1; i++){
             if(processList[i].second == processList[i+1].second && 
@@ -109,7 +113,7 @@ void sortProcessList(){
             }
         }          
     }    
-    
+    */
     
 }
 
@@ -128,22 +132,36 @@ long int getNewPriority(){
     return clock;
 }
 
-
-
 void printProcessList(vector < pair <int, long int> > processList){
     int i = 0;
-    for(pair<int, long int>& process : processList) {
-        printf("process[%d]: %d, %ld\n", i, process.first, process.second);        
-        i++;
-    }
+    if(processList.size() > 3)
+        for(pair<int, long int>& process : processList) {
+            printf("process[%d]: %d, %ld\n", i, process.first, process.second);        
+            i++;
+        }
 }
 
+void sendRelease(int size, long int rank){
+    long int msg[3];
+    msg[0] = rank;
+    msg[1] = -1;
+    msg[2] = 2;
+    for(int i = 0; i < size; i++){
+        if(i != rank){
+            //wyślij priorytet
+            MPI_Send( msg, 3, MPI_LONG_INT, i, MSG_TAG, MPI_COMM_WORLD );
+            printf("  Wyslalem release: %ld, priority: %ld, type: %ld do %d\n", msg[0], msg[1], msg[2], i );
+        }
+    }    
+}
 
-void pogrzeb(){
+void pogrzeb(int size, int rank){
+    
     cout << "PRZEBIEGA POGRZEB JEDNEGO Z TRUPÓW...\n";
     corpse--;
-    sleep(5);
-    //sendRelease(); -> DO ZAKODZENIA
+    sendRelease(size, rank); //-> DO ZAKODZENIA
+    sleep(5);    
+    
     //TUTAJ !
 }
 
@@ -151,8 +169,9 @@ bool receiveMessages(int msg_count, int size, int rank, long int *msg){
     MPI_Status status;
     while(msg_count != size - 1){
         //odbieraj wiadomosci
+        //cout << rank << ": odbieram..." << endl;
         MPI_Recv(msg, 3, MPI_LONG_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-        printf(" Otrzymalem rank: %ld, priority: %ld, type: %ld od %d\n", msg[0], msg[1], msg[2], status.MPI_SOURCE);
+        printf(" %d: Otrzymalem rank: %ld, priority: %ld, type: %ld od %d\n", rank, msg[0], msg[1], msg[2], status.MPI_SOURCE);
         if(msg[2] == 0){ //release
             corpse--;   
             msg_count--;
@@ -162,9 +181,9 @@ bool receiveMessages(int msg_count, int size, int rank, long int *msg){
             msg_count++;
             addToProcessList(msg[0], msg[1]);
             if (canITakeCorpse(size, rank, corpse)){
-                printf("%ld: BIORE GO (szybciej) !\n", rank);
+                printf("%d: BIORE GO (szybciej) !\n", rank);
                 //goto potrzeb
-                pogrzeb();
+                pogrzeb(size, rank);
                 return true;  //jak true to jump do startu
                 
             }
@@ -235,7 +254,6 @@ int ask2(int fd){
 int main(int argc, char **argv) {
     
     /*    INITIALIZATIONS    */
-    //#region
     int size, rank, len;
 	char processor[100];
     long int priority = 0;
@@ -244,9 +262,7 @@ int main(int argc, char **argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank); // ktory watek
     MPI_Comm_size(MPI_COMM_WORLD, &size); // ile watkow
 	MPI_Get_processor_name(processor, &len);
-    MPI_Status status;
-    //cout << "start!" << endl;
-    //#end region
+    //MPI_Status status;
     
     //DO SERWERA MICHAŁA
     /* 
@@ -295,9 +311,9 @@ int main(int argc, char **argv) {
     /*  START   */    
         
         priority = getNewPriority();
-        printf("My priority: %ld \n", priority);
+        printf("%d: my priority: %ld \n", rank, priority);
         
-        printf("My pid : %d z %d na (%s)\n", rank, size, processor);            
+        //printf("My pid : %d z %d na (%s)\n", rank, size, processor);            
         
         //  <pid, priorytet>
         
@@ -341,7 +357,7 @@ int main(int argc, char **argv) {
             if(i != rank){
                 //wyślij priorytet
                 MPI_Send( msg, 3, MPI_LONG_INT, i, MSG_TAG, MPI_COMM_WORLD );
-                printf(" Wyslalem rank: %ld, priority: %ld, type: %ld do %d\n", msg[0], msg[1], msg[2], i );
+                //printf(" Wyslalem rank: %ld, priority: %ld, type: %ld do %d\n", msg[0], msg[1], msg[2], i );
             }
         }    
         
@@ -351,9 +367,12 @@ int main(int argc, char **argv) {
             continue;
         
         
+        if(rank == 0)
+            printProcessList(processList);
+        
         if(canITakeCorpse(size, rank, corpse)){
             printf("BIORE GO !\n");
-            pogrzeb();
+            pogrzeb(size, rank);
         } else {
             printf("MUSZE CZEKAC :(\n");
             //czekaj na nowe wiadomosci
