@@ -1,21 +1,3 @@
-/*#include <stdio.h>
-//#include <iostream>
-//#include <vector>
-//#include <arpa/inet.h>
-//#include <stdlib.h>
-//#include <sys/wait.h>
-//#include <sys/stat.h>
-//#include <fcntl.h>
-//#include <string.h>
-//#include <sstream>
-//#include <fstream>
-//#include <cstdlib>
-//#include <cstdio>
-//#include <ctime>
-//#include <sys/ipc.h>
-//#include <time.h>
-*/
-
 #include <mpi.h>
 #include <netdb.h>
 #include <sys/msg.h>
@@ -24,19 +6,6 @@
 #include <unistd.h>
 #include <vector>
 #include <algorithm>
-
-/*
-#include <stdio.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <netinet/in.h>
-#include <unistd.h>
-#include <sys/ipc.h>
-#include <sys/msg.h>
-#include <string.h>
-#include <time.h>
-*/
 
 #define SIZE 30
 #define MAX_SIZE 256
@@ -55,19 +24,8 @@ struct timeval tp;
 struct sockaddr_in sa;
 struct hostent* addrent;
 vector <pair <int, long int>> processList;
-int corpse = 2;
-/*
-struct msgbuf {
-    long type;
-    int cmd;
-    char nick[10];
-    char text[256];
-    char date[30];
-    int pid;
-    int status;
-};
-*/
 
+int corpse = 0;
 int my_fd = 0;
 
 void addToProcessList(int rank, long int priority){    
@@ -202,7 +160,7 @@ void receiveMessages(int msg_count, int size, int rank, long int *msg, bool flag
         cout << rank << " : recv msg 3" << msg_count << endl;
         printf(" %d: Otrzymalem rank: %ld, priority: %ld, type: %ld od %d\n", rank, msg[0], msg[1], msg[2], status.MPI_SOURCE);
         
-        sleep(2);   
+        //sleep(2);   
         /*
         if(msg[2] == 0){ //release
             corpse--;   
@@ -270,36 +228,41 @@ int pogrzeb(int size, int rank){
 }
 
 
-int askForCorpseNum(int rank, char *adres){
-    int fd = 0;
-    int con = 0;
+pair<int, int> askForCorpseNum(int rank, int current_corpses){
+
+    pair<int, int> corpses_pair;
+    
+    //printf("askForCorpseNum:%d Time:%ld\n", rank);
+    int fd, con = 0;
     struct sockaddr_in sa;
     struct hostent* addrent;
-    int count = -1;
-    
-    while(1){
-		
-		fd = socket(PF_INET, SOCK_STREAM, 0);
-		addrent=gethostbyname(adres);
-		sa.sin_family = PF_INET;
-		sa.sin_port = htons(8080);
-		memcpy(&sa.sin_addr.s_addr, addrent->h_addr, addrent->h_length);
-		con = connect(fd, (struct sockaddr*)&sa, sizeof(sa));
-		if(con == 0){
-            writeI(fd, &rank);			
-			readI(fd, &count);
-			printf("Corpses:%d\n", count);
-			close(fd);
-			break;
-		}
-		close(fd);
-	}
-    if(count == -1){
-        cout << rank << " : brak wartosci z serwera" << endl;
-        count = 0;
+    fd = socket(PF_INET, SOCK_STREAM, 0);
+    //addrent=gethostbyname("panowiczmichal.ddns.net");
+    addrent=gethostbyname("localhost");
+    sa.sin_family = PF_INET;
+    sa.sin_port = htons(8080);
+    memcpy(&sa.sin_addr.s_addr, addrent->h_addr, addrent->h_length);
+    //cout << "askForCorpseNum1 " << con << endl;
+    con = connect(fd, (struct sockaddr*)&sa, sizeof(sa));
+    //cout << "askForCorpseNum2 " << con << endl;
+    int corpses = 0;
+    if(con == 0){
+        int count;
+        writeI(fd, &rank);
+        readI(fd, &count);
+        //read(fd, &time, sizeof(long));
+        if(count > current_corpses){
+            corpses = count - current_corpses;
+            current_corpses = count;
+            printf("%d: Corpses:%d\n", rank, count);
+        }
+        close(fd);
+        //break;
     }
-    
-    return count;
+    close(fd);
+    corpses_pair.first = corpses;
+    corpses_pair.second = current_corpses;
+    return corpses_pair;    
 }
 
 
@@ -314,12 +277,11 @@ int main(int argc, char **argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank); // ktory watek
     MPI_Comm_size(MPI_COMM_WORLD, &size); // ile watkow
 	MPI_Get_processor_name(processor, &len);
-    //MPI_Status status;
-     
-   // char adres[] = "localhost";
     
+    int current_corpses = 0;
     bool start = true;    
     int msg_count = 0;
+        
     
     while(1){
     /*  START   */ 
@@ -361,9 +323,11 @@ int main(int argc, char **argv) {
         
         while(corpse < 1){
             printf("%d : czekam na pojawienie sie nowych trupów...\n", rank);
-            sleep(5);
-            //corpse = askForCorpseNum(rank, adres);
-            //receiveMessages(msg_count, size, rank, msg, 0);
+            pair<int, int> corpses_pair;
+            corpses_pair = askForCorpseNum(rank, current_corpses);
+            corpse = corpses_pair.first;
+            current_corpses = corpses_pair.second;
+            cout << rank << " : corpse: " << corpse << endl;
             
         }
         
@@ -446,7 +410,7 @@ int main(int argc, char **argv) {
         //printProcessList(rank, processList);
         
         
-        sleep(5);
+        //sleep(5);
         
         //processList.erase(processList.begin()+1);
         start = false;
