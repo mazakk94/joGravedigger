@@ -7,6 +7,8 @@
 #include <vector>
 #include <algorithm>
 
+#define SIZE 30
+#define MAX_SIZE 256
 #define MSG_TAG 100
 
 #define readI(fd, x) read(fd, x, sizeof(int))
@@ -86,10 +88,10 @@ long int getNewPriority(){
     return clock;
 }
 
-int sendRelease(int size, long int rank){
+int sendRelease(int size, long int rank, long priority){
         
     int corpse_taken = getPosition(rank)+1; 
-    cout << rank << ": rozsyłam release " << endl;  
+    cout << priority << " " << rank << ": rozsyłam release " << endl;  
     processList.erase (processList.begin(), processList.begin() + corpse_taken);
     corpse -= corpse_taken;    
     return size - corpse_taken; // = msg_count 
@@ -107,10 +109,10 @@ void receiveMessages(int msg_count, int size, int rank, long int *msg, bool flag
     }   
 }
 
-int pogrzeb(int size, int rank){       
+int pogrzeb(int size, int rank, long priority){       
        
-    int new_msg_count = sendRelease(size, rank);  
-    cout << rank << ": WYKONUJE POGRZEB " << endl;
+    int new_msg_count = sendRelease(size, rank, priority);  
+    cout << priority << " " << rank << ": WYKONUJE POGRZEB " << endl;
     sleep(5); 
     return new_msg_count;
 }
@@ -122,7 +124,7 @@ pair<int, int> askForCorpseNum(int rank, int current_corpses){
     struct sockaddr_in sa;
     struct hostent* addrent;
     fd = socket(PF_INET, SOCK_STREAM, 0);
-    addrent=gethostbyname("localhost");
+    addrent=gethostbyname("lab-os-6");
     sa.sin_family = PF_INET;
     sa.sin_port = htons(8080);
     memcpy(&sa.sin_addr.s_addr, addrent->h_addr, addrent->h_length);
@@ -155,27 +157,26 @@ int main(int argc, char **argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank); // ktory watek
     MPI_Comm_size(MPI_COMM_WORLD, &size); // ile watkow
 	MPI_Get_processor_name(processor, &len);
-    
+    printf("Hello world: %d of %d na (%s)\n", rank, size, processor);
     int current_corpses = 0;
     int msg_count = 0;        
     
     while(1){
     /*  START   */ 
         long int msg[3];        
-        int type = 1;         
-        
+        int type = 1; 
         
         if(getPosition(rank) < 0){ //nie ma mnie na liście
             priority = getNewPriority();
             addToProcessList(rank, priority);   
-            cout << rank << ": pobieram wartość zegara " << priority << endl;
+            cout << priority << " " << rank << ": pobieram wartość zegara " << priority << endl;
 
             msg[0] = (long)rank;
             msg[1] = priority; 
             msg[2] = type;  
             //rozgłaszanie
             
-            cout << rank << ": rozsyłam priorytety" << endl;
+            cout << priority << " " << rank << ": rozsyłam priorytety" << endl;
             for(int i = 0; i < size; i++){
                 if(i != rank){
                     MPI_Send( msg, 3, MPI_LONG_INT, i, MSG_TAG, MPI_COMM_WORLD );                    
@@ -183,7 +184,7 @@ int main(int argc, char **argv) {
             }            
         }        
         
-        cout << rank << ": czekam na trupy " << endl;
+        cout << priority << " " << rank << ": czekam na trupy " << endl;
         while(corpse < 1){
             pair<int, int> corpses_pair;
             
@@ -193,31 +194,36 @@ int main(int argc, char **argv) {
             corpse = corpses_pair.first;
             current_corpses = corpses_pair.second;         
         }
-        cout << rank << ": doczekałem się " << corpse << " trupów " << endl;
-        
+        cout << priority << " " << rank << ": doczekałem się " << corpse << " trupów " << endl;
+        //printProcessList(rank, processList);
         //odbieranie
+		//cout << rank << " rank B4 msg_count: " << msg_count << endl;
         int new_rank = rank;
-        cout << rank << ": odbieram priorytety" << endl;
+        cout << priority << " " << rank << ": odbieram priorytety" << endl;
         receiveMessages(msg_count, size, rank, msg, 0); 
         rank = new_rank;
+		//cout << rank << " rank AFTER" << new_rank << endl;
         
-        cout << rank << ": sprawdzam czy moge brac trupa" << endl;
+        cout << priority << " " << rank << ": sprawdzam czy moge brac trupa" << endl;
         if(canITakeCorpse(size, rank, corpse)){
-            cout << rank << ": wiem, że moge brać trupa" << endl;
-            msg_count = pogrzeb(size, rank);
+            cout << priority << " " << rank << ": wiem, że moge brać trupa" << endl;
+            msg_count = pogrzeb(size, rank, priority);
         } else {
+			cout << priority << " " << rank << ": wiem, że NIE moge brać trupa" << endl;
             msg_count = size - 1 - corpse;
             processList.erase (processList.begin(), processList.begin() + corpse);
             corpse = 0;            
         }
     }
-	cout << ": koniec pracy procesu " << rank << endl;
+	cout << priority << " " << ": koniec pracy procesu " << rank << endl;
 	MPI_Finalize();
 }
 
 
 /*
 mpirun -default-hostfile none -np 10 ./g.exe
+mpirun -default-hostfile none -hostfile hosty -np 10 ./g.exe > plik
+mpirun -default-hostfile none -hostfile hosty -np 10 ./g.exe
 mpiCC grabarz.cpp -Wall  -std=c++11 -o g.exe
 g++ serv.cpp -o serv
 */
