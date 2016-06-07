@@ -7,8 +7,6 @@
 #include <vector>
 #include <algorithm>
 
-#define SIZE 30
-#define MAX_SIZE 256
 #define MSG_TAG 100
 
 #define readI(fd, x) read(fd, x, sizeof(int))
@@ -164,7 +162,8 @@ int main(int argc, char **argv) {
     while(1){
     /*  START   */ 
         long int msg[3];        
-        int type = 1; 
+        int type = 1;         
+        
         
         if(getPosition(rank) < 0){ //nie ma mnie na liście
             priority = getNewPriority();
